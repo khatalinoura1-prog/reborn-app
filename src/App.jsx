@@ -1,4 +1,10 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// ---- SUPABASE ----
+const SUPABASE_URL = "https://bydmldyvymmsjtrzgwae.supabase.co";
+const SUPABASE_KEY = "sb_publishable_iWz1yqTjrI2f7kaywDyOMw_WU1glb59";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const systemPrompt = `Tu es un expert en nutrition. Quand on te donne une photo d'un repas ou une description, tu dois estimer les calories et macronutriments.
 
@@ -49,33 +55,18 @@ const OBJECTIFS = [
 ];
 
 function calculerProfil(prenom, age, poids, taille, activite, objectif) {
-  // Mifflin-St Jeor pour femme
   const bmr = Math.round(10 * poids + 6.25 * taille - 5 * age - 161);
   const tdee = Math.round(bmr * activite);
   const cibles = Math.max(1200, Math.round(tdee + objectif));
-
-  // Répartition macros adaptée à l'objectif
   let pctProt, pctLip, pctGluc;
-  if (objectif <= -500) {
-    // Perte de poids — plus de protéines pour préserver le muscle
-    pctProt = 0.35; pctLip = 0.35; pctGluc = 0.30;
-  } else if (objectif === -250) {
-    // Perte douce
-    pctProt = 0.30; pctLip = 0.32; pctGluc = 0.38;
-  } else if (objectif === 0) {
-    // Maintien — équilibré
-    pctProt = 0.28; pctLip = 0.30; pctGluc = 0.42;
-  } else {
-    // Prise de masse — plus de glucides pour l'énergie
-    pctProt = 0.28; pctLip = 0.25; pctGluc = 0.47;
-  }
-
-  // Protéines : minimum recommandé 1.6g/kg pour perte, 1.4g/kg maintien, 2g/kg masse
+  if (objectif <= -500) { pctProt = 0.35; pctLip = 0.35; pctGluc = 0.30; }
+  else if (objectif === -250) { pctProt = 0.30; pctLip = 0.32; pctGluc = 0.38; }
+  else if (objectif === 0) { pctProt = 0.28; pctLip = 0.30; pctGluc = 0.42; }
+  else { pctProt = 0.28; pctLip = 0.25; pctGluc = 0.47; }
   const protMin = objectif <= -250 ? poids * 1.6 : objectif === 0 ? poids * 1.4 : poids * 2.0;
   const proteines = Math.max(Math.round(protMin), Math.round((cibles * pctProt) / 4));
   const lipides = Math.round((cibles * pctLip) / 9);
   const glucides = Math.max(50, Math.round((cibles - proteines * 4 - lipides * 9) / 4));
-
   return { prenom, age, poids, taille, activite, objectif, bmr, tdee, cibles, proteines, lipides, glucides };
 }
 
@@ -93,6 +84,144 @@ function Input({ label, value, onChange, type = "number", placeholder }) {
       <div style={{ fontSize: 10, color: "#9a7a75", letterSpacing: 2, marginBottom: 6, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>{label}</div>
       <input type={type} value={value} onChange={onChange} placeholder={placeholder}
         style={{ width: "100%", background: "#fdf8f7", border: `1px solid ${C.cremeDark}`, borderRadius: 12, padding: "13px 14px", color: C.chocolat, fontSize: 15, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
+    </div>
+  );
+}
+
+// ---- AUTH ----
+function AuthScreen({ onAuth }) {
+  const [mode, setMode] = useState("login"); // login | signup | forgot
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  const handleLogin = async () => {
+    setLoading(true); setError(null);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setError(error.message === "Invalid login credentials" ? "Email ou mot de passe incorrect." : error.message);
+    else onAuth(data.user);
+    setLoading(false);
+  };
+
+  const handleSignup = async () => {
+    if (password.length < 6) { setError("Le mot de passe doit contenir au moins 6 caractères."); return; }
+    setLoading(true); setError(null);
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) setError(error.message);
+    else if (data.user && !data.user.email_confirmed_at) {
+      setSuccess("Un email de confirmation t'a été envoyé. Vérifie ta boîte mail !");
+    } else {
+      onAuth(data.user);
+    }
+    setLoading(false);
+  };
+
+  const handleForgot = async () => {
+    if (!email) { setError("Entre ton email d'abord."); return; }
+    setLoading(true); setError(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) setError(error.message);
+    else setSuccess("Email de réinitialisation envoyé !");
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.creme, fontFamily: "'Georgia', serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+
+      <div style={{ background: C.bordeaux, padding: "40px 20px 30px", textAlign: "center" }}>
+        <div style={{ fontSize: 10, letterSpacing: 5, color: C.cashmere, fontFamily: "'DM Sans', sans-serif", fontWeight: 600, marginBottom: 8, textTransform: "uppercase" }}>Bienvenue dans</div>
+        <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 42, margin: 0, fontWeight: 700, color: C.creme, letterSpacing: 4 }}>REBORN</h1>
+        <div style={{ fontSize: 11, color: C.cashmereLight, marginTop: 6, fontFamily: "'DM Sans', sans-serif", letterSpacing: 2 }}>NUTRITION · CONSCIENCE · TRANSFORMATION</div>
+      </div>
+
+      <div style={{ maxWidth: 420, margin: "0 auto", padding: "32px 16px" }}>
+        <div style={{ background: "#fff", borderRadius: 24, padding: 28, boxShadow: "0 8px 32px rgba(84,17,15,0.1)", border: `1px solid ${C.cremeDark}` }}>
+
+          {/* Tabs login/signup */}
+          {mode !== "forgot" && (
+            <div style={{ display: "flex", gap: 0, marginBottom: 24, background: C.cremeDark, borderRadius: 12, padding: 3 }}>
+              {["login", "signup"].map(m => (
+                <button key={m} onClick={() => { setMode(m); setError(null); setSuccess(null); }}
+                  style={{ flex: 1, padding: "10px 4px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: mode === m ? C.bordeaux : "transparent", color: mode === m ? C.creme : "#9a7a75", transition: "all 0.2s" }}>
+                  {m === "login" ? "Se connecter" : "S'inscrire"}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mode === "forgot" && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: C.bordeaux, marginBottom: 6 }}>Mot de passe oublié 🔑</div>
+              <div style={{ fontSize: 13, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif" }}>Entre ton email pour recevoir un lien de réinitialisation.</div>
+            </div>
+          )}
+
+          {success ? (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📬</div>
+              <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.bordeaux, marginBottom: 8 }}>{success}</div>
+              <button onClick={() => { setMode("login"); setSuccess(null); setError(null); }}
+                style={{ marginTop: 12, padding: "11px 24px", borderRadius: 12, border: "none", background: C.bordeaux, color: C.creme, cursor: "pointer", fontWeight: 700, fontFamily: "inherit" }}>
+                Retour à la connexion
+              </button>
+            </div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: "#9a7a75", letterSpacing: 2, marginBottom: 6, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>Email</div>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="ton@email.com"
+                  onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : mode === "signup" ? handleSignup() : handleForgot())}
+                  style={{ width: "100%", background: "#fdf8f7", border: `1px solid ${C.cremeDark}`, borderRadius: 12, padding: "13px 14px", color: C.chocolat, fontSize: 15, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
+              </div>
+
+              {mode !== "forgot" && (
+                <div style={{ marginBottom: 6 }}>
+                  <div style={{ fontSize: 10, color: "#9a7a75", letterSpacing: 2, marginBottom: 6, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>Mot de passe</div>
+                  <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
+                    onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : handleSignup())}
+                    style={{ width: "100%", background: "#fdf8f7", border: `1px solid ${C.cremeDark}`, borderRadius: 12, padding: "13px 14px", color: C.chocolat, fontSize: 15, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
+                </div>
+              )}
+
+              {mode === "login" && (
+                <div style={{ textAlign: "right", marginBottom: 20 }}>
+                  <button onClick={() => { setMode("forgot"); setError(null); }}
+                    style={{ background: "none", border: "none", color: "#9a7a75", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", textDecoration: "underline" }}>
+                    Mot de passe oublié ?
+                  </button>
+                </div>
+              )}
+
+              {error && (
+                <div style={{ marginBottom: 14, padding: "10px 14px", background: "#fdf0ef", border: `1px solid ${C.cashmere}`, borderRadius: 10, color: C.bordeaux, fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}>
+                  ⚠️ {error}
+                </div>
+              )}
+
+              <button
+                onClick={mode === "login" ? handleLogin : mode === "signup" ? handleSignup : handleForgot}
+                disabled={loading || !email}
+                style={{ width: "100%", padding: 15, borderRadius: 14, border: "none", background: loading || !email ? C.cremeDark : C.bordeaux, color: loading || !email ? "#9a7a75" : C.creme, cursor: loading || !email ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 15, fontFamily: "inherit", transition: "all 0.2s" }}>
+                {loading ? "Chargement..." : mode === "login" ? "Se connecter →" : mode === "signup" ? "Créer mon compte ✨" : "Envoyer le lien 📧"}
+              </button>
+
+              {mode === "forgot" && (
+                <button onClick={() => { setMode("login"); setError(null); }}
+                  style={{ width: "100%", marginTop: 10, padding: 12, borderRadius: 12, border: `1px solid ${C.cremeDark}`, background: "transparent", color: "#9a7a75", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                  ← Retour
+                </button>
+              )}
+            </>
+          )}
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif" }}>
+          Tes données sont sécurisées 🔒
+        </div>
+      </div>
     </div>
   );
 }
@@ -129,7 +258,6 @@ function Onboarding({ onDone }) {
       </div>
 
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "24px 16px" }}>
-        {/* Progress */}
         <div style={{ display: "flex", gap: 6, marginBottom: 28 }}>
           {[0,1,2,3].map(i => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: 100, background: i <= step ? C.bordeaux : C.cremeDark, transition: "background 0.3s" }} />
@@ -265,7 +393,9 @@ function ResultatProfil({ profil, onContinue }) {
 
 // ---- APP PRINCIPALE ----
 export default function RebornApp() {
-  const [screen, setScreen] = useState("onboarding"); // onboarding | resultats | journal
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [screen, setScreen] = useState("onboarding");
   const [profil, setProfil] = useState(null);
   const [journal, setJournal] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -280,6 +410,26 @@ export default function RebornApp() {
   const [scanInput, setScanInput] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const fileRef = useRef();
+
+  // Vérifier la session au démarrage
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfil(null);
+    setJournal([]);
+    setScreen("onboarding");
+  };
 
   const handleProfil = (p) => { setProfil(p); setScreen("resultats"); };
   const handleContinue = () => setScreen("journal");
@@ -356,6 +506,19 @@ export default function RebornApp() {
     </button>
   );
 
+  // Chargement initial auth
+  if (authLoading) return (
+    <div style={{ minHeight: "100vh", background: C.creme, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 32, color: C.bordeaux, letterSpacing: 3 }}>REBORN</div>
+        <div style={{ marginTop: 12, fontSize: 13, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif" }}>Chargement...</div>
+      </div>
+    </div>
+  );
+
+  // Pas connectée → écran auth
+  if (!user) return <AuthScreen onAuth={setUser} />;
+
   if (screen === "onboarding") return <Onboarding onDone={handleProfil} />;
   if (screen === "resultats") return <ResultatProfil profil={profil} onContinue={handleContinue} />;
 
@@ -363,9 +526,17 @@ export default function RebornApp() {
     <div style={{ minHeight: "100vh", background: C.creme, fontFamily: "'Georgia', serif", color: C.chocolat, padding: "0 0 80px 0" }}>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
 
-      <div style={{ background: C.bordeaux, padding: "20px 20px 16px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, margin: 0, fontWeight: 700, color: C.creme, letterSpacing: 3 }}>REBORN</h1>
-        <div style={{ fontSize: 11, color: C.cashmere, marginTop: 2, fontFamily: "'DM Sans', sans-serif" }}>Bonjour {profil?.prenom} 🌸</div>
+      <div style={{ background: C.bordeaux, padding: "20px 20px 16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: 480, margin: "0 auto" }}>
+          <div>
+            <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, margin: 0, fontWeight: 700, color: C.creme, letterSpacing: 3 }}>REBORN</h1>
+            <div style={{ fontSize: 11, color: C.cashmere, marginTop: 2, fontFamily: "'DM Sans', sans-serif" }}>Bonjour {profil?.prenom} 🌸</div>
+          </div>
+          <button onClick={handleLogout}
+            style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 10, padding: "8px 12px", color: C.cashmereLight, cursor: "pointer", fontSize: 11, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
+            Déconnexion
+          </button>
+        </div>
       </div>
 
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 16px" }}>
