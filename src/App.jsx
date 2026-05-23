@@ -434,6 +434,10 @@ export default function RebornApp() {
   const [quantite, setQuantite] = useState(100);
   const [scanInput, setScanInput] = useState("");
   const [suggestions, setSuggestions] = useState([]);
+  const [humeurJour, setHumeurJour] = useState(null);
+  const [energieJour, setEnergieJour] = useState(null);
+  const [showRecap, setShowRecap] = useState(false);
+  const [recapData, setRecapData] = useState([]);
   const fileRef = useRef();
 
   // Vérifier la session au démarrage
@@ -494,6 +498,42 @@ export default function RebornApp() {
     };
     chargerRepas();
   }, [user]);
+
+  // Charger humeur du jour
+  useEffect(() => {
+    if (!user) return;
+    const chargerHumeur = async () => {
+      const today = new Date().toISOString().split("T")[0];
+      const { data } = await supabase.from("humeurs").select("*").eq("user_id", user.id).eq("date", today).single();
+      if (data) { setHumeurJour(data.humeur); setEnergieJour(data.energie); }
+    };
+    chargerHumeur();
+  }, [user]);
+
+  const sauvegarderHumeur = async (humeur, energie) => {
+    const today = new Date().toISOString().split("T")[0];
+    await supabase.from("humeurs").upsert({ user_id: user.id, date: today, humeur, energie }, { onConflict: "user_id,date" });
+    setHumeurJour(humeur); setEnergieJour(energie);
+  };
+
+  const chargerRecap = async () => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(d.toISOString().split("T")[0]);
+    }
+    const { data } = await supabase.from("repas").select("date, calories, proteines, glucides, lipides").eq("user_id", user.id).in("date", days);
+    const { data: humeurs } = await supabase.from("humeurs").select("date, humeur, energie").eq("user_id", user.id).in("date", days);
+    const recap = days.map(date => {
+      const repasJour = data?.filter(r => r.date === date) || [];
+      const humeurJour = humeurs?.find(h => h.date === date);
+      const totalCal = repasJour.reduce((s, r) => s + r.calories, 0);
+      return { date, calories: totalCal, humeur: humeurJour?.humeur || null, energie: humeurJour?.energie || null };
+    });
+    setRecapData(recap);
+    setShowRecap(true);
+  };
 
   const handleProfil = async (p) => {
     // Récupérer la session courante pour être sûr d'avoir le bon user
@@ -612,10 +652,16 @@ export default function RebornApp() {
             <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, margin: 0, fontWeight: 700, color: C.creme, letterSpacing: 3 }}>REBORN</h1>
             <div style={{ fontSize: 11, color: C.cashmere, marginTop: 2, fontFamily: "'DM Sans', sans-serif" }}>Bonjour {profil?.prenom} 🌸</div>
           </div>
-          <button onClick={handleLogout}
-            style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 10, padding: "8px 12px", color: C.cashmereLight, cursor: "pointer", fontSize: 11, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
-            Déconnexion
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={chargerRecap}
+              style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 10, padding: "8px 12px", color: C.cashmereLight, cursor: "pointer", fontSize: 11, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
+              📊 7 jours
+            </button>
+            <button onClick={handleLogout}
+              style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 10, padding: "8px 12px", color: C.cashmereLight, cursor: "pointer", fontSize: 11, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
+              Déco
+            </button>
+          </div>
         </div>
       </div>
 
@@ -669,6 +715,33 @@ export default function RebornApp() {
           {btn(mode === "photo", () => { setMode("photo"); setError(null); setScanResult(null); }, "📸 Photo")}
           {btn(mode === "scan", () => { setMode("scan"); setError(null); setScanResult(null); }, "📦 Scanner")}
           {btn(mode === "texte", () => { setMode("texte"); setError(null); }, "✍️ Texte")}
+        </div>
+
+        {/* Humeur du jour */}
+        <div style={{ background: "#fff", borderRadius: 20, padding: 16, border: `1px solid ${C.cremeDark}`, marginBottom: 14, boxShadow: "0 4px 20px rgba(84,17,15,0.06)" }}>
+          <div style={{ fontSize: 10, letterSpacing: 2, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif", marginBottom: 10 }}>COMMENT TU TE SENS AUJOURD'HUI ?</div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif" }}>Humeur</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[1,2,3,4,5].map(n => (
+                <button key={n} onClick={() => sauvegarderHumeur(n, energieJour || 3)}
+                  style={{ width: 32, height: 32, borderRadius: "50%", border: `2px solid ${humeurJour === n ? C.bordeaux : C.cremeDark}`, background: humeurJour === n ? "#fdf0ef" : "transparent", cursor: "pointer", fontSize: 14 }}>
+                  {["😞","😕","😐","🙂","😊"][n-1]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 11, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif" }}>Énergie</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[1,2,3,4,5].map(n => (
+                <button key={n} onClick={() => sauvegarderHumeur(humeurJour || 3, n)}
+                  style={{ width: 32, height: 32, borderRadius: "50%", border: `2px solid ${energieJour === n ? C.bordeaux : C.cremeDark}`, background: energieJour === n ? "#fdf0ef" : "transparent", cursor: "pointer", fontSize: 11, fontWeight: 700, color: energieJour === n ? C.bordeaux : "#9a7a75", fontFamily: "'DM Sans', sans-serif" }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Zone */}
@@ -838,6 +911,47 @@ export default function RebornApp() {
           </div>
         )}
       </div>
+    </div>
+
+      {/* Modal Récap 7 jours */}
+      {showRecap && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(48,22,15,0.7)", zIndex: 100, display: "flex", alignItems: "flex-end" }} onClick={() => setShowRecap(false)}>
+          <div style={{ background: "#fff", borderRadius: "24px 24px 0 0", padding: 24, width: "100%", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: C.bordeaux }}>Récap 7 jours</div>
+              <button onClick={() => setShowRecap(false)} style={{ background: "#fdf0ef", border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: C.bordeaux, fontSize: 14 }}>✕</button>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif", letterSpacing: 2, marginBottom: 8 }}>CALORIES PAR JOUR</div>
+              {recapData.map(jour => {
+                const pct = Math.min((jour.calories / (profil?.cibles || 1800)) * 100, 100);
+                const dateLabel = new Date(jour.date + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric" });
+                return (
+                  <div key={jour.date} style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <div style={{ fontSize: 12, color: C.chocolat, fontFamily: "'DM Sans', sans-serif", textTransform: "capitalize" }}>{dateLabel}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {jour.humeur && <span style={{ fontSize: 14 }}>{["😞","😕","😐","🙂","😊"][jour.humeur-1]}</span>}
+                        <div style={{ fontSize: 12, fontWeight: 700, color: jour.calories > 0 ? C.bordeaux : "#9a7a75", fontFamily: "'Cormorant Garamond', serif" }}>{jour.calories > 0 ? `${jour.calories} kcal` : "—"}</div>
+                      </div>
+                    </div>
+                    <div style={{ background: C.cremeDark, borderRadius: 100, height: 6, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${C.cashmere}, ${C.bordeaux})`, borderRadius: 100 }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ background: "#fdf0ef", borderRadius: 14, padding: 14, border: `1px solid ${C.cashmere}` }}>
+              <div style={{ fontSize: 11, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif", letterSpacing: 2, marginBottom: 6 }}>MOYENNE SEMAINE</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: C.bordeaux, fontFamily: "'Cormorant Garamond', serif" }}>
+                {Math.round(recapData.filter(d => d.calories > 0).reduce((s, d) => s + d.calories, 0) / Math.max(recapData.filter(d => d.calories > 0).length, 1))} kcal
+              </div>
+              <div style={{ fontSize: 11, color: "#9a7a75", fontFamily: "'DM Sans', sans-serif", marginTop: 2 }}>par jour sur {recapData.filter(d => d.calories > 0).length} jours trackés</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
