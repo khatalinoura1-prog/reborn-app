@@ -423,6 +423,23 @@ export default function RebornApp() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Charger le profil depuis Supabase quand l'user est connecté
+  useEffect(() => {
+    if (!user) return;
+    const chargerProfil = async () => {
+      const { data, error } = await supabase
+        .from("profils")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
+      if (data && !error) {
+        setProfil(data);
+        setScreen("journal");
+      }
+    };
+    chargerProfil();
+  }, [user]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -431,7 +448,15 @@ export default function RebornApp() {
     setScreen("onboarding");
   };
 
-  const handleProfil = (p) => { setProfil(p); setScreen("resultats"); };
+  const handleProfil = async (p) => {
+    // Sauvegarder dans Supabase
+    await supabase.from("profils").upsert({
+      user_id: user.id,
+      ...p
+    }, { onConflict: "user_id" });
+    setProfil(p);
+    setScreen("resultats");
+  };
   const handleContinue = () => setScreen("journal");
 
   const totalCalories = journal.reduce((s, r) => s + r.calories, 0);
