@@ -110,10 +110,13 @@ function AuthScreen({ onAuth }) {
     setLoading(true); setError(null);
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) setError(error.message);
-    else if (data.user && !data.user.email_confirmed_at) {
-      setSuccess("Un email de confirmation t'a été envoyé. Vérifie ta boîte mail !");
-    } else {
-      onAuth(data.user);
+    else if (data.user) {
+      // Session active directement (confirmation email désactivée)
+      if (data.session) {
+        onAuth(data.user);
+      } else {
+        setSuccess("Un email de confirmation t'a été envoyé. Vérifie ta boîte mail !");
+      }
     }
     setLoading(false);
   };
