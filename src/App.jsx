@@ -452,11 +452,16 @@ export default function RebornApp() {
   };
 
   const handleProfil = async (p) => {
-    // Sauvegarder dans Supabase
-    await supabase.from("profils").upsert({
-      user_id: user.id,
-      ...p
-    }, { onConflict: "user_id" });
+    // Récupérer la session courante pour être sûr d'avoir le bon user
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id || user?.id;
+    if (userId) {
+      const { error } = await supabase.from("profils").upsert({
+        user_id: userId,
+        ...p
+      }, { onConflict: "user_id" });
+      if (error) console.error("Erreur sauvegarde profil:", error);
+    }
     setProfil(p);
     setScreen("resultats");
   };
