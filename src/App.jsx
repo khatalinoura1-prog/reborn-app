@@ -70,6 +70,28 @@ function calculerProfil(prenom, age, poids, taille, activite, objectif) {
   return { prenom, age, poids, taille, activite, objectif, bmr, tdee, cibles, proteines, lipides, glucides };
 }
 
+async function ajouterRepasDB(supabase, userId, data, setJournal) {
+  const today = new Date().toISOString().split("T")[0];
+  const repas = {
+    user_id: userId,
+    date: today,
+    description: data.description || "",
+    calories: data.calories || 0,
+    proteines: data.proteines || 0,
+    glucides: data.glucides || 0,
+    lipides: data.lipides || 0,
+    aliments: Array.isArray(data.aliments) ? data.aliments.join(",") : (data.aliments || ""),
+  };
+  const { data: saved, error } = await supabase.from("repas").insert(repas).select().single();
+  if (saved) {
+    setJournal(j => [...j, {
+      ...saved,
+      aliments: saved.aliments ? saved.aliments.split(",") : [],
+      heure: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    }]);
+  }
+}
+
 function ajouterRepas(setJournal, data) {
   setJournal(j => [...j, {
     ...data,
@@ -451,6 +473,28 @@ export default function RebornApp() {
     setScreen("onboarding");
   };
 
+  // Charger les repas du jour
+  useEffect(() => {
+    if (!user) return;
+    const chargerRepas = async () => {
+      const today = new Date().toISOString().split("T")[0];
+      const { data } = await supabase
+        .from("repas")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("date", today)
+        .order("created_at", { ascending: true });
+      if (data) {
+        setJournal(data.map(r => ({
+          ...r,
+          aliments: r.aliments ? r.aliments.split(",") : [],
+          heure: new Date(r.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+        })));
+      }
+    };
+    chargerRepas();
+  }, [user]);
+
   const handleProfil = async (p) => {
     // Récupérer la session courante pour être sûr d'avoir le bon user
     const { data: { session } } = await supabase.auth.getSession();
@@ -491,9 +535,9 @@ export default function RebornApp() {
     setSuggestions(val.length >= 2 ? PRODUITS_DEMO.filter(p => p.nom.toLowerCase().includes(val.toLowerCase()) || p.barcode.includes(val)) : []);
   };
 
-  const confirmerProduit = (p, qte = 100) => {
+  const confirmerProduit = async (p, qte = 100) => {
     const r = qte / 100;
-    ajouterRepas(setJournal, { aliments: [p.nom], calories: Math.round(p.calories * r), proteines: Math.round(p.proteines * r), glucides: Math.round(p.glucides * r), lipides: Math.round(p.lipides * r), description: `${p.image} ${p.nom} (${qte}g)` });
+    await ajouterRepasDB(supabase, user.id, { aliments: [p.nom], calories: Math.round(p.calories * r), proteines: Math.round(p.proteines * r), glucides: Math.round(p.glucides * r), lipides: Math.round(p.lipides * r), description: `${p.image} ${p.nom} (${qte}g)` }, setJournal);
     setScanResult(null); setScanInput(""); setManualBarcode(""); setSuggestions([]);
   };
 
@@ -512,7 +556,7 @@ export default function RebornApp() {
         body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: systemPrompt, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: imageData } }, { type: "text", text: "Analyse ce repas." }] }] }) });
       const data = await res.json();
       const parsed = JSON.parse(data.content?.find(b => b.type === "text")?.text?.replace(/```json|```/g, "").trim() || "{}");
-      if (parsed.calories > 0) { ajouterRepas(setJournal, parsed); setPreview(null); setImageData(null); }
+      if (parsed.calories > 0) { await ajouterRepasDB(supabase, user.id, parsed, setJournal); setPreview(null); setImageData(null); }
       else setError("Impossible d'analyser.");
     } catch { setError("Erreur. Réessaie."); }
     setLoading(false);
@@ -526,13 +570,16 @@ export default function RebornApp() {
         body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: systemPrompt, messages: [{ role: "user", content: `Estime les calories et macros pour : ${texte}` }] }) });
       const data = await res.json();
       const parsed = JSON.parse(data.content?.find(b => b.type === "text")?.text?.replace(/```json|```/g, "").trim() || "{}");
-      if (parsed.calories > 0) { ajouterRepas(setJournal, parsed); setTexte(""); }
+      if (parsed.calories > 0) { await ajouterRepasDB(supabase, user.id, parsed, setJournal); setTexte(""); }
       else setError("Impossible d'estimer.");
     } catch { setError("Erreur. Réessaie."); }
     setLoading(false);
   }, [texte]);
 
-  const supprimer = (id) => setJournal(j => j.filter(r => r.id !== id));
+  const supprimer = async (id) => {
+    await supabase.from("repas").delete().eq("id", id);
+    setJournal(j => j.filter(r => r.id !== id));
+  };
   const btn = (active, onClick, label) => (
     <button onClick={onClick} style={{ flex: 1, padding: "11px 4px", borderRadius: 12, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "inherit", background: active ? C.bordeaux : C.cremeDark, color: active ? C.creme : C.bordeaux }}>
       {label}
@@ -593,6 +640,13 @@ export default function RebornApp() {
 
           <div style={{ background: C.cremeDark, borderRadius: 100, height: 8, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${progression}%`, background: `linear-gradient(90deg, ${C.cashmere}, ${C.bordeaux})`, borderRadius: 100, transition: "width 0.6s ease" }} />
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: C.bordeaux, fontFamily: "'DM Sans', sans-serif", textAlign: "center", fontStyle: "italic" }}>
+            {progression === 0 && "C'est parti ! Ajoute ton premier repas 🌸"}
+            {progression > 0 && progression < 50 && "Belle journée en cours, continue comme ça ✨"}
+            {progression >= 50 && progression < 80 && "Tu es à mi-chemin, tu gères ! 💪"}
+            {progression >= 80 && progression < 100 && "Presque à l'objectif, bravo ! 🎯"}
+            {progression >= 100 && "Objectif atteint aujourd'hui ! 🌟"}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 14 }}>
@@ -771,7 +825,7 @@ export default function RebornApp() {
                 <button onClick={() => supprimer(repas.id)} style={{ background: "#fdf0ef", border: "none", borderRadius: 8, padding: "5px 7px", cursor: "pointer", color: C.bordeaux, fontSize: 13, flexShrink: 0 }}>✕</button>
               </div>
             ))}
-            <button onClick={() => setJournal([])} style={{ width: "100%", marginTop: 6, padding: 11, borderRadius: 12, border: `1px solid ${C.cashmere}`, background: "#fdf0ef", color: C.bordeaux, cursor: "pointer", fontWeight: 600, fontSize: 12, fontFamily: "inherit" }}>
+            <button onClick={async () => { const today = new Date().toISOString().split("T")[0]; await supabase.from("repas").delete().eq("user_id", user.id).eq("date", today); setJournal([]); }} style={{ width: "100%", marginTop: 6, padding: 11, borderRadius: 12, border: `1px solid ${C.cashmere}`, background: "#fdf0ef", color: C.bordeaux, cursor: "pointer", fontWeight: 600, fontSize: 12, fontFamily: "inherit" }}>
               Réinitialiser le journal
             </button>
           </div>
