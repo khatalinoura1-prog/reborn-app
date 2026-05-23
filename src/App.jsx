@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 // ---- SUPABASE ----
 const SUPABASE_URL = "https://bydmldyvymmsjtrzgwae.supabase.co";
-const SUPABASE_KEY = "sb_publishable_iWz1yqTjrI2f7kaywDyOMw_WU1glb59";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5ZG1sZHl2eW1tc2p0cnpnd2FlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1MDk3MTUsImV4cCI6MjA5NTA4NTcxNX0.QfRSUBtg0qAdbPjTZ5OiyGMAhjPH-SL1QGwykEuid3s";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const systemPrompt = `Tu es un expert en nutrition. Quand on te donne une photo d'un repas ou une description, tu dois estimer les calories et macronutriments.
