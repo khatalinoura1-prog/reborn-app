@@ -911,7 +911,6 @@ export default function RebornApp() {
           </div>
         )}
       </div>
-    </div>
 
       {/* Modal Récap 7 jours */}
       {showRecap && (
